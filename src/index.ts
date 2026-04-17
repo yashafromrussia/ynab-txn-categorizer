@@ -13,18 +13,27 @@ async function main() {
   const client = new YnabClient(token, budgetId);
 
   try {
-    console.log('Fetching transactions...');
-    const transactions = await client.getTransactions();
-    console.log(`Found ${transactions.length} transactions.`);
+    console.log('Fetching uncategorized transactions...');
+    const uncategorized = await client.getUncategorizedTransactions();
+    console.log(`Found ${uncategorized.length} uncategorized transactions.`);
     
     // Just log the first 5 for now
-    console.log('Latest transactions:');
-    console.table(transactions.slice(0, 5).map(t => ({
-      date: t.date,
-      payee: t.payee_name,
-      category: t.category_name,
-      amount: t.amount / 1000,
-    })));
+    if (uncategorized.length > 0) {
+      console.log('Latest uncategorized transactions:');
+      console.table(uncategorized.slice(0, 5).map(t => ({
+        date: t.date,
+        payee: t.payee_name,
+        category: t.category_name,
+        amount: t.amount / 1000,
+      })));
+
+      const firstPayeeId = uncategorized[0].payee_id;
+      if (firstPayeeId) {
+        console.log(`\nFetching historical transactions for payee ${uncategorized[0].payee_name}...`);
+        const historical = await client.getTransactionsByPayee(firstPayeeId);
+        console.log(`Found ${historical.length} historical transactions for this payee.`);
+      }
+    }
 
   } catch (error) {
     console.error('Error:', error);
