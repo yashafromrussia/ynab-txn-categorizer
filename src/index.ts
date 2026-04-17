@@ -60,7 +60,8 @@ async function main() {
       let matchedCategoryId = engine.evaluate({
         payeeName: transaction.payee_name,
         date: transaction.date,
-        calendarEvents: events
+        calendarEvents: events,
+        accountId: transaction.account_id
       });
 
       if (!matchedCategoryId && identityResolver && transaction.payee_name) {

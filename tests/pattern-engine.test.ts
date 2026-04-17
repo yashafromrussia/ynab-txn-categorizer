@@ -11,9 +11,9 @@ describe('PatternEngine', () => {
       categoryId: 'food'
     });
 
-    expect(engine.evaluate('Uber Eats')).toBe('food');
-    expect(engine.evaluate('uber eats')).toBe('food');
-    expect(engine.evaluate('Uber Eats SF')).toBeNull();
+    expect(engine.evaluate({ payeeName: 'Uber Eats' })).toBe('food');
+    expect(engine.evaluate({ payeeName: 'uber eats' })).toBe('food');
+    expect(engine.evaluate({ payeeName: 'Uber Eats SF' })).toBeNull();
   });
 
   it('should match regex rules', () => {
@@ -25,9 +25,9 @@ describe('PatternEngine', () => {
       categoryId: 'coffee'
     });
 
-    expect(engine.evaluate('SQ *MAIN ST COFFEE')).toBe('coffee');
-    expect(engine.evaluate('sq *local coffee shop')).toBe('coffee');
-    expect(engine.evaluate('Coffee beans')).toBeNull();
+    expect(engine.evaluate({ payeeName: 'SQ *MAIN ST COFFEE' })).toBe('coffee');
+    expect(engine.evaluate({ payeeName: 'sq *local coffee shop' })).toBe('coffee');
+    expect(engine.evaluate({ payeeName: 'Coffee beans' })).toBeNull();
   });
 
   it('should match fuzzy rules using levenshtein distance', () => {
@@ -40,10 +40,10 @@ describe('PatternEngine', () => {
       maxDistance: 2
     });
 
-    expect(engine.evaluate('McDonalds')).toBe('fast-food');
-    expect(engine.evaluate('MacDonalds')).toBe('fast-food');
-    expect(engine.evaluate('McDonald')).toBe('fast-food');
-    expect(engine.evaluate('Burger King')).toBeNull();
+    expect(engine.evaluate({ payeeName: 'McDonalds' })).toBe('fast-food');
+    expect(engine.evaluate({ payeeName: 'MacDonalds' })).toBe('fast-food');
+    expect(engine.evaluate({ payeeName: 'McDonald' })).toBe('fast-food');
+    expect(engine.evaluate({ payeeName: 'Burger King' })).toBeNull();
   });
 
   it('should match fuzzy rules using substring inclusion', () => {
@@ -55,9 +55,9 @@ describe('PatternEngine', () => {
       categoryId: 'groceries'
     });
 
-    expect(engine.evaluate('TARGET STORE 1234')).toBe('groceries');
-    expect(engine.evaluate('Target')).toBe('groceries');
-    expect(engine.evaluate('Walmart')).toBeNull();
+    expect(engine.evaluate({ payeeName: 'TARGET STORE 1234' })).toBe('groceries');
+    expect(engine.evaluate({ payeeName: 'Target' })).toBe('groceries');
+    expect(engine.evaluate({ payeeName: 'Walmart' })).toBeNull();
   });
 
   it('should return null when payee is null or undefined', () => {
@@ -69,9 +69,9 @@ describe('PatternEngine', () => {
       categoryId: 'test'
     });
 
-    expect(engine.evaluate(null)).toBeNull();
-    expect(engine.evaluate(undefined)).toBeNull();
-    expect(engine.evaluate('')).toBeNull();
+    expect(engine.evaluate({ payeeName: null })).toBeNull();
+    expect(engine.evaluate({ payeeName: undefined })).toBeNull();
+    expect(engine.evaluate({ payeeName: '' })).toBeNull();
   });
 
   it('should return the first matching rule', () => {
@@ -89,7 +89,7 @@ describe('PatternEngine', () => {
       categoryId: 'everything'
     });
 
-    expect(engine.evaluate('Amazon')).toBe('shopping');
+    expect(engine.evaluate({ payeeName: 'Amazon' })).toBe('shopping');
   });
 
   it('should handle invalid regex patterns gracefully', () => {
@@ -101,6 +101,43 @@ describe('PatternEngine', () => {
       categoryId: 'error'
     });
 
-    expect(engine.evaluate('Anything')).toBeNull();
+    expect(engine.evaluate({ payeeName: 'Anything' })).toBeNull();
+  });
+
+  it('should prioritize rules matching the accountId', () => {
+    const engine = new PatternEngine();
+    
+    engine.addRule({
+      id: 'generic',
+      type: 'fuzzy',
+      pattern: 'Target',
+      categoryId: 'shopping'
+    });
+    
+    engine.addRule({
+      id: 'specific',
+      type: 'exact',
+      pattern: 'Target',
+      categoryId: 'groceries',
+      accountId: 'account-123'
+    });
+
+    expect(engine.evaluate({ payeeName: 'Target' })).toBe('shopping');
+    expect(engine.evaluate({ payeeName: 'Target', accountId: 'account-123' })).toBe('groceries');
+  });
+
+  it('should completely ignore account-specific rules if the accountId does not match', () => {
+    const engine = new PatternEngine();
+    engine.addRule({
+      id: 'specific-only',
+      type: 'exact',
+      pattern: 'Netflix',
+      categoryId: 'subscriptions',
+      accountId: 'account-456'
+    });
+
+    expect(engine.evaluate({ payeeName: 'Netflix' })).toBeNull();
+    expect(engine.evaluate({ payeeName: 'Netflix', accountId: 'account-999' })).toBeNull();
+    expect(engine.evaluate({ payeeName: 'Netflix', accountId: 'account-456' })).toBe('subscriptions');
   });
 });

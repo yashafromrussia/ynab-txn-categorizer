@@ -9,12 +9,14 @@ export interface PatternRule {
   pattern: string;
   categoryId: string;
   maxDistance?: number;
+  accountId?: string;
 }
 
 export interface EvaluationContext {
   payeeName: string | null | undefined;
   date?: string;
   calendarEvents?: CalendarEvent[];
+  accountId?: string;
 }
 
 export class PatternEngine {
@@ -33,16 +35,42 @@ export class PatternEngine {
   }
 
   evaluate(context: EvaluationContext): string | null {
+    let bestMatch: { categoryId: string; score: number } | null = null;
+
     for (const rule of this.rules) {
       if (this.isMatch(context, rule)) {
-        return rule.categoryId;
+        const score = this.calculateScore(context, rule);
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { categoryId: rule.categoryId, score };
+        }
       }
     }
 
-    return null;
+    return bestMatch ? bestMatch.categoryId : null;
+  }
+
+  private calculateScore(context: EvaluationContext, rule: PatternRule): number {
+    let score = 0;
+
+    switch (rule.type) {
+      case 'exact': score += 50; break;
+      case 'temporal': score += 40; break;
+      case 'regex': score += 30; break;
+      case 'fuzzy': score += 20; break;
+    }
+
+    if (rule.accountId && rule.accountId === context.accountId) {
+      score += 100;
+    }
+
+    return score;
   }
 
   private isMatch(context: EvaluationContext, rule: PatternRule): boolean {
+    if (rule.accountId && rule.accountId !== context.accountId) {
+      return false;
+    }
+
     const payeeName = context.payeeName || '';
 
     switch (rule.type) {

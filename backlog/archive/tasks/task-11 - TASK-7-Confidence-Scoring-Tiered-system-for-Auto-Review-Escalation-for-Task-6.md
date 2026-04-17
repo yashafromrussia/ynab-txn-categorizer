@@ -1,34 +1,26 @@
 ---
-id: TASK-7
-title: >-
-  Confidence Scoring: Implement a tiered confidence system (Auto-suggest vs.
-  Review)
+id: TASK-11
+title: 'TASK-7 Confidence Scoring: Tiered system for Auto/Review/Escalation for Task-6'
 status: To Do
 assignee: []
-created_date: '2026-04-17 13:15'
-updated_date: '2026-04-17 23:26'
+created_date: '2026-04-17 23:23'
 labels:
   - planning
   - task-7
   - confidence
-  - ai-integration
-dependencies: []
+milestone: TASK-7
+dependencies:
+  - TASK-6
 references:
-  - .sisyphus/plans/TASK-7_Confidence_Scoring.md
   - .sisyphus/plans/TASK-6_Contextual-Prompting.md
 priority: high
+ordinal: 1
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
 Define a tiered confidence scoring system for Task-6's Contextual Prompting workflow. Include: thresholds for Auto, Auto-with-minor-review, Review, Escalation; mapping rules; data provenance and logging; QA scenarios; gating relation to Task-6; and acceptance criteria; DoD. Deliverable: plan-ready artifacts and integration hints.
-
-This task governs Task-6's decision gates across Stage-1 (deterministic), Stage-2 (LLM via Stage-1 context), and Stage-3 (fallback). It is a hard prerequisite for Task-6 Stage-2/Stage-3 execution.
-
-References:
-- Plan artifact: .sisyphus/plans/TASK-7_Confidence_Scoring.md
-- Related: .sisyphus/plans/TASK-6_Contextual-Prompting.md
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
@@ -37,12 +29,11 @@ References:
 - [ ] #2 Outputs include confidence scores and provenance for auditable decisions.
 - [ ] #3 QA scenarios for happy path and edge cases defined.
 - [ ] #4 Task-6 integration points reference Task-7 outputs explicitly.
-- [ ] #5 Task-5 gating considerations reflected in the scoring model.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Plan artifact for TASK-7 created at .sisyphus/plans/TASK-7_Confidence_Scoring.md
+- [ ] #1 Plan artifact for TASK-7 created
 - [ ] #2 Confidence scoring definitions documented with threshold values
 - [ ] #3 Provenance/log schema defined
 - [ ] #4 Integration points with Task-6 clearly specified
