@@ -1,37 +1,59 @@
 import 'dotenv/config';
 import { YnabClient } from './ynab.js';
+import { CalendarClient } from './calendar.js';
+import { PatternEngine } from './pattern-engine.js';
+import { CalendarEvent } from "./calendar.js";
 
 async function main() {
   const token = process.env.YNAB_ACCESS_TOKEN;
   const budgetId = process.env.YNAB_BUDGET_ID;
+  const calendarId = process.env.GOOGLE_CALENDAR_ID;
+  const googleApiKey = process.env.GOOGLE_API_KEY;
 
   if (!token || !budgetId) {
     console.error('Missing YNAB_ACCESS_TOKEN or YNAB_BUDGET_ID in .env');
     process.exit(1);
   }
 
-  const client = new YnabClient(token, budgetId);
+  const ynabClient = new YnabClient(token, budgetId);
+  const calendarClient = calendarId ? new CalendarClient(calendarId, googleApiKey) : null;
+  const engine = new PatternEngine();
+
+  // Example Temporal Rule:
+  engine.addRule({
+    id: 'rule-temporal-flight',
+    type: 'temporal',
+    pattern: 'flight', // Look for 'flight' in calendar events
+    categoryId: 'Travel-Category-Id'
+  });
 
   try {
     console.log('Fetching uncategorized transactions...');
-    const uncategorized = await client.getUncategorizedTransactions();
+    const uncategorized = await ynabClient.getUncategorizedTransactions();
     console.log(`Found ${uncategorized.length} uncategorized transactions.`);
     
-    // Just log the first 5 for now
-    if (uncategorized.length > 0) {
-      console.log('Latest uncategorized transactions:');
-      console.table(uncategorized.slice(0, 5).map(t => ({
-        date: t.date,
-        payee: t.payee_name,
-        category: t.category_name,
-        amount: t.amount / 1000,
-      })));
+    for (const transaction of uncategorized.slice(0, 5)) {
+      console.log(`\nEvaluating transaction: ${transaction.date} | Payee: ${transaction.payee_name} | Amount: ${transaction.amount / 1000}`);
+      
+      let events: CalendarEvent[] = [];
+      if (calendarClient && transaction.date) {
+        console.log(`Fetching calendar events around ${transaction.date}...`);
+        events = await calendarClient.getEventsAroundDate(transaction.date, 1);
+        if (events.length > 0) {
+          console.log(`  Found ${events.length} events (e.g., "${events[0].summary}")`);
+        }
+      }
 
-      const firstPayeeId = uncategorized[0].payee_id;
-      if (firstPayeeId) {
-        console.log(`\nFetching historical transactions for payee ${uncategorized[0].payee_name}...`);
-        const historical = await client.getTransactionsByPayee(firstPayeeId);
-        console.log(`Found ${historical.length} historical transactions for this payee.`);
+      const matchedCategoryId = engine.evaluate({
+        payeeName: transaction.payee_name,
+        date: transaction.date,
+        calendarEvents: events
+      });
+
+      if (matchedCategoryId) {
+        console.log(`  -> Matched category ID: ${matchedCategoryId}`);
+      } else {
+        console.log(`  -> No match found.`);
       }
     }
 
