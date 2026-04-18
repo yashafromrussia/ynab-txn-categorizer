@@ -43,8 +43,8 @@ export class IdentityResolver {
     }
   }
 
-  async resolveMerchant(payeeName: string, knownCategories: Record<string, string[]>): Promise<string | null> {
-    if (!payeeName) return null;
+  async resolveMerchant(payeeName: string, knownCategories: Record<string, string[]>): Promise<{ categoryId: string | null; merchantInfo: string | null }> {
+    if (!payeeName) return { categoryId: null, merchantInfo: null };
 
     try {
       console.log(`  [Identity] Searching Google for "${payeeName}"...`);
@@ -57,7 +57,7 @@ export class IdentityResolver {
       const items = res.data.items || [];
       if (items.length === 0) {
         console.log(`  [Identity] No search results found for "${payeeName}".`);
-        return null;
+        return { categoryId: null, merchantInfo: null };
       }
 
       const searchContext = items.map((i: customsearch_v1.Schema$Result) => `${i.title}\n${i.snippet}`).join('\n\n');
@@ -66,14 +66,15 @@ export class IdentityResolver {
         for (const kw of keywords) {
           if (searchContext.toLowerCase().includes(kw.toLowerCase())) {
             console.log(`  [Identity] Found exact keyword match: "${kw}" -> Category: ${categoryId}`);
-            return categoryId;
+            return { categoryId, merchantInfo: searchContext };
           }
         }
       }
 
       if (this.modelName) {
         console.log(`  [Identity] No exact keyword match. Falling back to LLM (${this.modelName})...`);
-        return await this.resolveWithLLM(payeeName, searchContext, Object.keys(knownCategories));
+        const categoryId = await this.resolveWithLLM(payeeName, searchContext, Object.keys(knownCategories));
+        return { categoryId, merchantInfo: searchContext };
       } else {
         console.log(`  [Identity] No exact keyword match and no AI_MODEL provided.`);
       }
@@ -81,8 +82,9 @@ export class IdentityResolver {
       console.error(`  [Identity] Error resolving merchant:`, error);
     }
     
-    return null;
+    return { categoryId: null, merchantInfo: null };
   }
+
 
   private async resolveWithLLM(payeeName: string, searchContext: string, categories: string[]): Promise<string | null> {
     if (!this.modelName) return null;

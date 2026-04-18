@@ -61,4 +61,5 @@ export class YnabClient {
     const response = await this.client.get(`/budgets/${this.budgetId}/payees/${payeeId}/transactions`);
     return response.data.data.transactions;
   }
+
 }

@@ -4,6 +4,39 @@ import { CalendarClient } from './calendar.js';
 import { PatternEngine } from './pattern-engine.js';
 import { CalendarEvent } from "./calendar.js";
 import { IdentityResolver } from './identity.js';
+import { generateText } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { evaluateStage1, buildStage2Prompt, buildStage3Prompt, TransactionContext } from './contextual-prompting.js';
+
+async function getAiModel(modelStr: string) {
+  const [provider, ...modelParts] = modelStr.split(':');
+  const model = modelParts.join(':');
+
+  switch (provider) {
+    case 'google': {
+      const google = createGoogleGenerativeAI({
+        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      });
+      return google(model);
+    }
+    case 'anthropic': {
+      const anthropic = createAnthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+      return anthropic(model);
+    }
+    case 'openai':
+    default: {
+      const openai = createOpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        baseURL: process.env.OPENAI_BASE_URL,
+      });
+      return openai(model || provider);
+    }
+  }
+}
 
 async function main() {
   const token = process.env.YNAB_ACCESS_TOKEN;
@@ -33,12 +66,14 @@ async function main() {
     categoryId: 'Travel-Category-Id'
   });
 
-  const knownCategories = {
+  const knownCategoriesMap = {
     'Dining': ['restaurant', 'coffee', 'cafe', 'food', 'steak'],
     'Groceries': ['grocery', 'supermarket', 'market'],
     'Travel': ['flight', 'airline', 'hotel', 'motel', 'resort'],
     'Entertainment': ['movie', 'theater', 'tickets', 'concert']
   };
+
+  const categoryList = Object.entries(knownCategoriesMap).map(([id, _]) => ({ id, name: id }));
 
   try {
     console.log('Fetching uncategorized transactions...');
@@ -57,21 +92,77 @@ async function main() {
         }
       }
 
-      let matchedCategoryId = engine.evaluate({
+      const txContext: TransactionContext = {
+        payeeName: transaction.payee_name || 'Unknown',
+        amount: transaction.amount / 1000,
+        date: transaction.date,
+        accountId: transaction.account_id
+      };
+
+      const patternMatch = engine.evaluate({
         payeeName: transaction.payee_name,
         date: transaction.date,
         calendarEvents: events,
         accountId: transaction.account_id
       });
 
-      if (!matchedCategoryId && identityResolver && transaction.payee_name) {
-        matchedCategoryId = await identityResolver.resolveMerchant(transaction.payee_name, knownCategories);
+      let historicalCount = 0;
+      if (transaction.payee_id) {
+        const history = await ynabClient.getTransactionsByPayee(transaction.payee_id);
+        historicalCount = history.length;
       }
 
-      if (matchedCategoryId) {
-        console.log(`  -> Matched category ID: ${matchedCategoryId}`);
+      const stage1 = evaluateStage1(txContext, historicalCount, patternMatch);
+
+      if (stage1.hasDeterministicMatch) {
+        console.log(`  -> Stage 1 Match: ${stage1.matchedCategoryId}`);
+        continue;
+      }
+
+      console.log(`  -> Stage 1 inconclusive. Moving to Stage 2...`);
+      let merchantInfo = '';
+      if (identityResolver && transaction.payee_name) {
+        const { categoryId, merchantInfo: info } = await identityResolver.resolveMerchant(transaction.payee_name, knownCategoriesMap);
+        merchantInfo = info || '';
+        if (categoryId) {
+          console.log(`  -> Identity resolution found category: ${categoryId}. Using as strong signal.`);
+        }
+      }
+
+      if (aiModel) {
+        const prompt = buildStage2Prompt(
+          txContext, 
+          stage1, 
+          categoryList, 
+          events.map(e => e.summary), 
+          merchantInfo
+        );
+
+        const model = await getAiModel(aiModel);
+        const { text } = await generateText({
+          model,
+          system: 'You are a helpful financial assistant. Output only the exact category ID from the provided list, or "INCONCLUSIVE" if no match is found. Output nothing else.',
+          prompt,
+          temperature: 0.1
+        });
+
+        const result = text.trim();
+        if (result !== 'INCONCLUSIVE' && categoryList.some(c => c.id === result)) {
+          console.log(`  -> Stage 2 Match: ${result}`);
+          continue;
+        }
+        
+        console.log(`  -> Stage 2 inconclusive. Moving to Stage 3...`);
+        const fallbackPrompt = buildStage3Prompt(txContext, stage1, result, categoryList);
+        const { text: fallbackText } = await generateText({
+          model,
+          system: 'You are a senior financial analyst. Provide a JSON response with reasoning and confidence.',
+          prompt: fallbackPrompt,
+          temperature: 0.1
+        });
+        console.log(`  -> Stage 3 Result:\n${fallbackText}`);
       } else {
-        console.log(`  -> No match found.`);
+        console.log(`  -> AI_MODEL not provided, cannot execute Stage 2/3.`);
       }
     }
 

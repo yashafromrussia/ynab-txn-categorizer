@@ -3,10 +3,10 @@ id: TASK-6
 title: >-
   TASK-6 Contextual Prompting: Synthesize Transaction + History + Calendar +
   Merchant info for LLM prompts
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-17 13:15'
-updated_date: '2026-04-17 23:26'
+updated_date: '2026-04-17 23:29'
 labels:
   - planning
   - task-6
@@ -49,17 +49,17 @@ References:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stage-1 deterministic mapping defined with payee gating and history-based signals; gating excludes Afterpay-like multi-merchant payees unless explicitly overridable.
-- [ ] #2 Stage-2 prompts constructed from Stage-1 outputs + full category list; executed sequentially (no batching); results are auditable and provenance-traced.
-- [ ] #3 Stage-3 prompts exist only for unresolved Stage-1 items; final decision or documented rationale produced with explicit confidence and cross-checks.
-- [ ] #4 Task-5 prerequisites completed and accessible; Stage-2/Stage-3 prompts reference Task-5 outputs unambiguously.
-- [ ] #5 Metis guardrails incorporated: no auto-assign on uncertain payees; Afterpay as optional; full traceability; escalation path to human review when necessary.
+- [x] #1 Stage-1 deterministic mapping defined with payee gating and history-based signals; gating excludes Afterpay-like multi-merchant payees unless explicitly overridable.
+- [x] #2 Stage-2 prompts constructed from Stage-1 outputs + full category list; executed sequentially (no batching); results are auditable and provenance-traced.
+- [x] #3 Stage-3 prompts exist only for unresolved Stage-1 items; final decision or documented rationale produced with explicit confidence and cross-checks.
+- [x] #4 Task-5 prerequisites completed and accessible; Stage-2/Stage-3 prompts reference Task-5 outputs unambiguously.
+- [x] #5 Metis guardrails incorporated: no auto-assign on uncertain payees; Afterpay as optional; full traceability; escalation path to human review when necessary.
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Plan artifact saved to .sisyphus/plans/TASK-6_Contextual-Prompting.md
-- [ ] #2 All signals documented and traceable
-- [ ] #3 Metis guardrails integrated
-- [ ] #4 Plan references Task-5 gating and Afterpay extension noted as future work
+- [x] #1 Plan artifact saved to .sisyphus/plans/TASK-6_Contextual-Prompting.md
+- [x] #2 All signals documented and traceable
+- [x] #3 Metis guardrails integrated
+- [x] #4 Plan references Task-5 gating and Afterpay extension noted as future work
 <!-- DOD:END -->
