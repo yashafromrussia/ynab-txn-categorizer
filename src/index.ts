@@ -9,6 +9,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { evaluateStage1, buildStage2Prompt, buildStage3Prompt, TransactionContext } from './contextual-prompting.js';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
 async function getAiModel(modelStr: string) {
   const [provider, ...modelParts] = modelStr.split(':');
@@ -27,6 +28,12 @@ async function getAiModel(modelStr: string) {
       });
       return anthropic(model);
     }
+    case 'openrouter':
+      console.log(model)
+      const openRouter = createOpenRouter({
+        apiKey: process.env.OPEN_ROUTER_API_KEY,
+      });
+      return openRouter(model);
     case 'openai':
     default: {
       const openai = createOpenAI({
@@ -42,8 +49,7 @@ async function main() {
   const token = process.env.YNAB_ACCESS_TOKEN;
   const budgetId = process.env.YNAB_BUDGET_ID;
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
-  const googleApiKey = process.env.GOOGLE_API_KEY;
-  const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
+  const braveApiKey = process.env.BRAVE_API_KEY;
   const aiModel = process.env.AI_MODEL;
 
   if (!token || !budgetId) {
@@ -52,23 +58,27 @@ async function main() {
   }
 
   const ynabClient = new YnabClient(token, budgetId);
-  const calendarClient = calendarId ? new CalendarClient(calendarId, googleApiKey) : null;
+  const calendarClient = calendarId ? new CalendarClient(calendarId) : null;
   const engine = new PatternEngine();
-  const identityResolver = (googleApiKey && searchEngineId) 
-    ? new IdentityResolver(googleApiKey, searchEngineId, aiModel) 
+  const identityResolver = (braveApiKey)
+    ? new IdentityResolver(braveApiKey, aiModel)
     : null;
 
   // Example Temporal Rule:
-  engine.addRule({
-    id: 'rule-temporal-flight',
-    type: 'temporal',
-    pattern: 'flight', // Look for 'flight' in calendar events
-    categoryId: 'Travel-Category-Id'
-  });
+  // engine.addRule({
+  //   id: 'rule-temporal-flight',
+  //   type: 'temporal',
+  //   pattern: 'flight', // Look for 'flight' in calendar events
+  //   categoryId: 'Travel-Category-Id'
+  // });
+
+  // engine.addRule({
+  //   id: ''
+  // })
 
   const knownCategoriesMap = {
     'Dining': ['restaurant', 'coffee', 'cafe', 'food', 'steak'],
-    'Groceries': ['grocery', 'supermarket', 'market'],
+    'Groceries': ['grocery', 'supermarket', 'market', 'coles', 'grocer'],
     'Travel': ['flight', 'airline', 'hotel', 'motel', 'resort'],
     'Entertainment': ['movie', 'theater', 'tickets', 'concert']
   };
@@ -79,10 +89,10 @@ async function main() {
     console.log('Fetching uncategorized transactions...');
     const uncategorized = await ynabClient.getUncategorizedTransactions();
     console.log(`Found ${uncategorized.length} uncategorized transactions.`);
-    
+
     for (const transaction of uncategorized.slice(0, 5)) {
       console.log(`\nEvaluating transaction: ${transaction.date} | Payee: ${transaction.payee_name} | Amount: ${transaction.amount / 1000}`);
-      
+
       let events: CalendarEvent[] = [];
       if (calendarClient && transaction.date) {
         console.log(`Fetching calendar events around ${transaction.date}...`);
@@ -131,10 +141,10 @@ async function main() {
 
       if (aiModel) {
         const prompt = buildStage2Prompt(
-          txContext, 
-          stage1, 
-          categoryList, 
-          events.map(e => e.summary), 
+          txContext,
+          stage1,
+          categoryList,
+          events.map(e => e.summary),
           merchantInfo
         );
 
@@ -151,7 +161,7 @@ async function main() {
           console.log(`  -> Stage 2 Match: ${result}`);
           continue;
         }
-        
+
         console.log(`  -> Stage 2 inconclusive. Moving to Stage 3...`);
         const fallbackPrompt = buildStage3Prompt(txContext, stage1, result, categoryList);
         const { text: fallbackText } = await generateText({

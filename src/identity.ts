@@ -1,23 +1,23 @@
-import { customsearch, customsearch_v1 } from '@googleapis/customsearch';
+import { BraveSearchClient, BraveSearchResponse } from './brave-search.js';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 
 export class IdentityResolver {
-  private searchApi: customsearch_v1.Customsearch;
-  private searchEngineId: string;
+  private searchClient: BraveSearchClient;
   private modelName?: string;
 
-  constructor(googleApiKey: string, searchEngineId: string, modelName?: string) {
-    this.searchApi = customsearch({ version: 'v1', auth: googleApiKey });
-    this.searchEngineId = searchEngineId;
+  constructor(braveApiKey: string, modelName?: string) {
+    this.searchClient = new BraveSearchClient(braveApiKey);
     this.modelName = modelName;
   }
 
   private getAiModel(modelStr: string) {
     const [provider, ...modelParts] = modelStr.split(':');
     const model = modelParts.join(':');
+    console.log('getAiModel', model, provider)
 
     switch (provider) {
       case 'google': {
@@ -32,6 +32,12 @@ export class IdentityResolver {
         });
         return anthropic(model);
       }
+      case 'openrouter':
+        console.log(model)
+        const openRouter = createOpenRouter({
+          apiKey: process.env.OPEN_ROUTER_API_KEY,
+        });
+        return openRouter(model);
       case 'openai':
       default: {
         const openai = createOpenAI({
@@ -47,20 +53,19 @@ export class IdentityResolver {
     if (!payeeName) return { categoryId: null, merchantInfo: null };
 
     try {
-      console.log(`  [Identity] Searching Google for "${payeeName}"...`);
-      const res = await this.searchApi.cse.list({
-        cx: this.searchEngineId,
+      console.log(`  [Identity] Searching Brave for "${payeeName}"...`);
+      const res = await this.searchClient.search({
         q: payeeName,
-        num: 3
+        count: 3
       });
 
-      const items = res.data.items || [];
+      const items = res.web.results || [];
       if (items.length === 0) {
         console.log(`  [Identity] No search results found for "${payeeName}".`);
         return { categoryId: null, merchantInfo: null };
       }
 
-      const searchContext = items.map((i: customsearch_v1.Schema$Result) => `${i.title}\n${i.snippet}`).join('\n\n');
+      const searchContext = items.map((i: any) => `${i.title}\\n${i.snippet}`).join('\\n\\n');
 
       for (const [categoryId, keywords] of Object.entries(knownCategories)) {
         for (const kw of keywords) {
@@ -81,7 +86,7 @@ export class IdentityResolver {
     } catch (error) {
       console.error(`  [Identity] Error resolving merchant:`, error);
     }
-    
+
     return { categoryId: null, merchantInfo: null };
   }
 
@@ -114,7 +119,7 @@ Return ONLY the exact category name from the list. If you are unsure, return "Un
       });
 
       const answer = text.trim();
-      
+
       if (answer && categories.includes(answer)) {
         console.log(`  [Identity] LLM resolved to category: ${answer}`);
         return answer;

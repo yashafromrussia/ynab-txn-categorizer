@@ -52,7 +52,7 @@ export class YnabClient {
 
   async getUncategorizedTransactions(): Promise<Transaction[]> {
     const response = await this.client.get(`/budgets/${this.budgetId}/transactions`, {
-      params: { type: 'uncategorized' },
+      params: { type: 'unapproved' },
     });
     return response.data.data.transactions;
   }

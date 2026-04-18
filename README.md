@@ -13,7 +13,7 @@ To eliminate the manual effort of transaction categorization by creating a "Fina
 
 ### Phase 2: The Context Engine (Enrichment Layer)
 - [x] **Temporal Correlation**: Google Calendar integration to match transaction timestamps with scheduled events.
-- [x] **Identity Resolution**: Google Search/LLM integration to identify obscure merchant names.
+- [x] **Identity Resolution**: Brave Search/LLM integration to identify obscure merchant names.
 - [x] **Account Heuristics**: Weighting categories based on the source account.
 
 ### Phase 3: The Intelligence Layer (LLM Orchestrator)
@@ -25,7 +25,7 @@ To eliminate the manual effort of transaction categorization by creating a "Fina
 - [ ] **Batch Update**: Atomic category updates via YNAB API.
 
 ## 🛠️ Workstreams
-- **API/Data**: YNAB, Google Calendar, Google Search.
+- **API/Data**: YNAB, Google Calendar, Brave Search.
 - **Logic**: Pattern matching and data normalization.
 - **AI**: Prompt engineering and confidence scoring.
 
@@ -41,12 +41,12 @@ To eliminate the manual effort of transaction categorization by creating a "Fina
    ```bash
    cp .env.example .env
    ```
-   
-   **Required configuration:**
-   - **YNAB**: `YNAB_ACCESS_TOKEN`, `YNAB_BUDGET_ID`
-   - **Google Calendar (Temporal Correlation)**: `GOOGLE_CALENDAR_ID`, `GOOGLE_API_KEY` (or `GOOGLE_APPLICATION_CREDENTIALS` path)
-   - **Google Search (Identity Resolution)**: `GOOGLE_SEARCH_ENGINE_ID`
-   - **LLM Provider (AI SDK)**: Define `AI_MODEL` using the `provider:model` syntax (e.g., `openai:gpt-4o-mini`, `google:gemini-1.5-pro`, `anthropic:claude-3-haiku-20240307`). Provide the corresponding API key (`OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `ANTHROPIC_API_KEY`). Custom OpenAI-compatible endpoints can be used by setting `OPENAI_BASE_URL` (useful for Ollama, vLLM, or OpenRouter).
+
+    **Required configuration:**
+    - **YNAB**: `YNAB_ACCESS_TOKEN`, `YNAB_BUDGET_ID`
+    - **Google Calendar (Temporal Correlation)**: `GOOGLE_CALENDAR_ID`, `GOOGLE_API_KEY` (or `GOOGLE_APPLICATION_CREDENTIALS` path)
+    - **Brave Search (Identity Resolution)**: `BRAVE_API_KEY`
+    - **LLM Provider (AI SDK)**: Define `AI_MODEL` using the `provider:model` syntax (e.g., `openai:gpt-4o-mini`, `google:gemini-1.5-pro`, `anthropic:claude-3-haiku-20240307`). Provide the corresponding API key (`OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `ANTHROPIC_API_KEY`). Custom OpenAI-compatible endpoints can be used by setting `OPENAI_BASE_URL` (useful for Ollama, vLLM, or OpenRouter).
 
 ## 📝 Rule Configuration
 
