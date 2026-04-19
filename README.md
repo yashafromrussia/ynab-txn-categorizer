@@ -47,6 +47,44 @@ To eliminate the manual effort of transaction categorization by creating a "Fina
     - **Google Calendar (Temporal Correlation)**: `GOOGLE_CALENDAR_ID`, `GOOGLE_API_KEY` (or `GOOGLE_APPLICATION_CREDENTIALS` path)
     - **Brave Search (Identity Resolution)**: `BRAVE_API_KEY`
     - **LLM Provider (AI SDK)**: Define `AI_MODEL` using the `provider:model` syntax (e.g., `openai:gpt-4o-mini`, `google:gemini-1.5-pro`, `anthropic:claude-3-haiku-20240307`). Provide the corresponding API key (`OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `ANTHROPIC_API_KEY`). Custom OpenAI-compatible endpoints can be used by setting `OPENAI_BASE_URL` (useful for Ollama, vLLM, or OpenRouter).
+    - **Gmail Integration (optional)**: `GMAIL_OAUTH_CLIENT`, `GMAIL_TOKEN_PATH`. See "Gmail Integration Setup" below.
+
+## 📧 Gmail Integration Setup
+
+The Gmail integration (Stage 1.7) improves categorization accuracy for payment aggregators like Afterpay, PayPal, and Apple Pay by reading the itemized receipt emails they send around the transaction date.
+
+### Setup (one-time)
+
+1. **Create OAuth credentials in Google Cloud Console:**
+   - Open [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+   - Enable the **Gmail API** for your project
+   - Create an OAuth 2.0 Client ID with application type **Desktop app**
+   - Download the JSON and save it to `secrets/gmail-oauth-client.json`
+
+2. **Authorize the app:**
+   ```bash
+   npm run gmail:auth
+   ```
+   Open the printed URL in a browser, approve the **gmail.readonly** scope, then paste the code back into the prompt. A refresh token is saved to `secrets/gmail-token.json` (gitignored).
+
+3. **Enable the feature in `config.json`:**
+   ```json
+   "gmailLookup": {
+     "enabled": true,
+     "daysWindow": 2,
+     "payees": ["afterpay", "paypal", "apple pay"],
+     "senders": ["noreply@afterpay.com", "service@paypal.com", "no_reply@email.apple.com"],
+     "amountTolerance": 500,
+     "maxMessagesPerTransaction": 10
+   }
+   ```
+
+### Privacy notes
+
+- Gmail queries are always scoped to the `senders` allowlist — never a full-inbox search.
+- Email bodies are held in memory during parsing and **never persisted**. Traces record only the matched `email_id` and extracted merchant name.
+- `gmailLookup.enabled` defaults to `false`. No Gmail calls happen unless you opt in.
+- Only `gmail.readonly` scope is requested.
 
 ## 📝 Rule Configuration
 

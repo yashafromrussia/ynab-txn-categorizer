@@ -2,6 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PatternRule } from './pattern-engine.js';
 
+export interface GmailLookupConfig {
+    enabled: boolean;
+    daysWindow: number;
+    payees: string[];
+    senders: string[];
+    amountTolerance: number;
+    maxMessagesPerTransaction: number;
+}
+
 export interface AppConfig {
     ambiguousPayees: string[];
     amountTolerance?: number;
@@ -10,6 +19,7 @@ export interface AppConfig {
     minConfidence?: number;
     knownCategories: Record<string, string[]>;
     rules: PatternRule[];
+    gmailLookup?: GmailLookupConfig;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -24,7 +34,15 @@ const DEFAULT_CONFIG: AppConfig = {
         'Travel': ['flight', 'airline', 'hotel', 'motel', 'resort'],
         'Entertainment': ['movie', 'theater', 'tickets', 'concert']
     },
-    rules: []
+    rules: [],
+    gmailLookup: {
+        enabled: false,
+        daysWindow: 2,
+        payees: ['afterpay', 'paypal', 'apple pay', 'apple.com/bill'],
+        senders: ['noreply@afterpay.com', 'service@paypal.com', 'no_reply@email.apple.com'],
+        amountTolerance: 500,
+        maxMessagesPerTransaction: 10,
+    },
 };
 
 export class ConfigManager {

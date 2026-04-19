@@ -9,5 +9,13 @@
       "Travel": ["flight", "airline", "hotel", "motel", "resort"],
       "Entertainment": ["movie", "theater", "tickets", "concert"]
   },
-  "rules": []
+  "rules": [],
+  "gmailLookup": {
+    "enabled": true,
+    "daysWindow": 2,
+    "payees": ["afterpay", "paypal", "apple pay", "apple.com/bill"],
+    "senders": ["donotreply@afterpay.com"],
+    "amountTolerance": 500,
+    "maxMessagesPerTransaction": 10
+  }
 }

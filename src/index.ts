@@ -16,6 +16,8 @@ import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import { selectTransactionToEvaluate, displayEvaluationResult } from './ui.js';
+import { GmailClient } from './gmail.js';
+import { enrichTransactionWithGmail, isPayeeGmailEligible, type GmailEnrichmentConfig } from './gmail-enrichment.js';
 
 async function getAiModel(modelStr: string) {
   const [provider, ...modelParts] = modelStr.split(':');
@@ -81,6 +83,20 @@ async function main() {
   const identityResolver = (braveApiKey)
     ? new IdentityResolver(braveApiKey, aiModel)
     : null;
+
+  const gmailEnrichmentConfig: GmailEnrichmentConfig | null = appConfig.gmailLookup?.enabled
+    ? {
+        daysWindow: appConfig.gmailLookup.daysWindow,
+        payees: appConfig.gmailLookup.payees,
+        senders: appConfig.gmailLookup.senders,
+        amountTolerance: appConfig.gmailLookup.amountTolerance,
+        maxMessagesPerTransaction: appConfig.gmailLookup.maxMessagesPerTransaction,
+      }
+    : null;
+  const gmailClient = gmailEnrichmentConfig ? GmailClient.fromEnv() : null;
+  if (gmailEnrichmentConfig && !gmailClient) {
+    console.warn('[Gmail] Enrichment enabled in config but Gmail client unavailable; continuing without it.');
+  }
 
   const knownCategoriesMap = appConfig.knownCategories;
 
@@ -226,9 +242,86 @@ async function main() {
                 }
             }
             let merchantInfo = '';
+
+            if (
+                gmailClient &&
+                gmailEnrichmentConfig &&
+                transaction.payee_name &&
+                isPayeeGmailEligible(transaction.payee_name, gmailEnrichmentConfig.payees)
+            ) {
+                txSpinner.message(`Stage 1.7: Checking Gmail receipts for ${transaction.payee_name}...`);
+                const model = aiModel ? await getAiModel(aiModel) : undefined;
+                const enrichment = await enrichTransactionWithGmail({
+                    transactionId: transaction.id,
+                    payeeName: transaction.payee_name,
+                    dateStr: transaction.date,
+                    amountMilliunits: transaction.amount,
+                    gmailClient,
+                    config: gmailEnrichmentConfig,
+                    categories: categoryList,
+                    aiModel: model,
+                });
+
+                if (enrichment) {
+                    baseTrace.signals_used.gmail_enrichment_applied = true;
+                    baseTrace.signals_used.gmail_email_id = enrichment.emailId;
+                    merchantInfo = merchantInfo
+                        ? `${merchantInfo}\n---\n${enrichment.merchantContext}`
+                        : enrichment.merchantContext;
+
+                    const splits = enrichment.subtransactions;
+                    if (splits && splits.length > 0) {
+                        txSpinner.stop(`Completed Stage 1.7 evaluation`);
+                        const trace: CategorizationTrace = {
+                            ...baseTrace,
+                            assigned_category_id: null,
+                            subtransactions: splits,
+                            confidence_score: 0.85,
+                            tier: 'Suggest',
+                            stage_resolved: 1,
+                            llm_reasoning: enrichment.reasoning,
+                        };
+                        await saveTrace(trace);
+
+                        let details = `Reasoning: ${enrichment.reasoning}\nSplits:\n`;
+                        splits.forEach(st => {
+                            details += `  - ${(st.amount / 1000).toFixed(2)}: ${getCategoryName(st.category_id, st)}\n`;
+                        });
+                        displayEvaluationResult(transaction, `Stage 1.7 Gmail Split (Tier: Suggest, Score: 0.85)`, 'Split', details);
+                        continue;
+                    }
+
+                    if (enrichment.recommendedCategoryId) {
+                        const evalConf = evaluateConfidence(0.9, 1);
+                        txSpinner.stop(`Completed Stage 1.7 evaluation`);
+                        const trace: CategorizationTrace = {
+                            ...baseTrace,
+                            assigned_category_id: enrichment.recommendedCategoryId,
+                            confidence_score: evalConf.score,
+                            tier: evalConf.tier,
+                            stage_resolved: 1,
+                            llm_reasoning: enrichment.reasoning,
+                        };
+                        await saveTrace(trace);
+                        displayEvaluationResult(
+                            transaction,
+                            `Stage 1.7 Gmail (Tier: ${evalConf.tier}, Score: ${evalConf.score})`,
+                            getCategoryName(enrichment.recommendedCategoryId),
+                            `Reasoning: ${enrichment.reasoning}`
+                        );
+                        continue;
+                    }
+                } else {
+                    txSpinner.message(`Stage 1.7 Gmail: no matching receipt found.`);
+                }
+            }
+
             if (identityResolver && transaction.payee_name) {
                 const { categoryId, merchantInfo: info } = await identityResolver.resolveMerchant(transaction.payee_name, knownCategoriesMap);
-                merchantInfo = info || '';
+                const identityInfo = info || '';
+                if (identityInfo) {
+                    merchantInfo = merchantInfo ? `${merchantInfo}\n---\n${identityInfo}` : identityInfo;
+                }
                 if (categoryId) {
                      txSpinner.message(`Identity resolution found category: ${categoryId}. Using as strong signal.`);
                      baseTrace.signals_used.search_identity_resolved = true;

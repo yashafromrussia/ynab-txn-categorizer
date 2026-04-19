@@ -17,6 +17,8 @@ export interface CategorizationTrace {
     calendar_event_id: string | null;
     search_identity_resolved: boolean;
     account_heuristic_applied: boolean;
+    gmail_enrichment_applied?: boolean;
+    gmail_email_id?: string | null;
   };
   llm_reasoning: string | null;
   timestamp: string;
