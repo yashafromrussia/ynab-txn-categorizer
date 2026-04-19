@@ -42,7 +42,7 @@ export class CalendarClient {
       return events.map(event => {
         const start = event.start?.dateTime || event.start?.date;
         const end = event.end?.dateTime || event.end?.date;
-        
+
         return {
           id: event.id || '',
           summary: event.summary || '',
@@ -66,7 +66,7 @@ export class CalendarClient {
     const targetDate = parseISO(dateStr);
     const startDate = subDays(targetDate, daysWindow);
     const endDate = addDays(targetDate, daysWindow + 1); // +1 to ensure coverage
-    
+
     return this.getEventsInRange(startDate, endDate);
   }
 }

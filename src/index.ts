@@ -9,6 +9,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { evaluateStage1, buildStage2Prompt, buildStage3Prompt, TransactionContext } from './contextual-prompting.js';
+import { evaluateConfidence, CategorizationTrace, saveTrace } from './confidence-scoring.js';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import * as p from '@clack/prompts';
 import chalk from 'chalk';
@@ -66,18 +67,6 @@ async function main() {
   const identityResolver = (braveApiKey)
     ? new IdentityResolver(braveApiKey, aiModel)
     : null;
-
-  // Example Temporal Rule:
-  // engine.addRule({
-  //   id: 'rule-temporal-flight',
-  //   type: 'temporal',
-  //   pattern: 'flight', // Look for 'flight' in calendar events
-  //   categoryId: 'Travel-Category-Id'
-  // });
-
-  // engine.addRule({
-  //   id: ''
-  // })
 
   const knownCategoriesMap = {
     'Dining': ['restaurant', 'coffee', 'cafe', 'food', 'steak'],
@@ -139,9 +128,33 @@ async function main() {
 
             const stage1 = evaluateStage1(txContext, historicalCount, patternMatch ?? undefined);
 
+            const baseTrace: Omit<CategorizationTrace, 'assigned_category_id' | 'confidence_score' | 'tier' | 'stage_resolved' | 'llm_reasoning'> = {
+              transaction_id: transaction.id,
+              payee_name: transaction.payee_name || 'Unknown',
+              timestamp: new Date().toISOString(),
+              signals_used: {
+                deterministic_rule_id: patternMatch ? 'rule' : null,
+                calendar_event_id: events.length > 0 ? events[0].id : null,
+                search_identity_resolved: false,
+                account_heuristic_applied: false
+              }
+            };
+
             if (stage1.hasDeterministicMatch) {
+                const evalConf = evaluateConfidence(1.0, 1);
                 txSpinner.stop(`Completed Stage 1 evaluation`);
-                displayEvaluationResult(transaction, 'Stage 1 (Deterministic)', stage1.matchedCategoryId ? stage1.matchedCategoryId : 'Unknown');
+
+                const trace: CategorizationTrace = {
+                  ...baseTrace,
+                  assigned_category_id: stage1.matchedCategoryId || null,
+                  confidence_score: evalConf.score,
+                  tier: evalConf.tier,
+                  stage_resolved: 1,
+                  llm_reasoning: null
+                };
+
+                await saveTrace(trace);
+                displayEvaluationResult(transaction, `Stage 1 (Tier: ${evalConf.tier}, Score: ${evalConf.score})`, stage1.matchedCategoryId ? stage1.matchedCategoryId : 'Unknown');
                 continue;
             }
 
@@ -152,55 +165,95 @@ async function main() {
                 merchantInfo = info || '';
                 if (categoryId) {
                      txSpinner.message(`Identity resolution found category: ${categoryId}. Using as strong signal.`);
+                     baseTrace.signals_used.search_identity_resolved = true;
                 }
             }
 
             if (aiModel) {
                 txSpinner.message('Running Stage 2 AI inference...');
                 const prompt = buildStage2Prompt(
-                txContext,
-                stage1,
-                categoryList,
-                events.map(e => e.summary),
-                merchantInfo
+                  txContext,
+                  stage1,
+                  categoryList,
+                  events.map(e => e.summary),
+                  merchantInfo
                 );
 
                 const model = await getAiModel(aiModel);
                 const { text } = await generateText({
-                model,
-                system: 'You are a helpful financial assistant. Output only the exact category ID from the provided list, or "INCONCLUSIVE" if no match is found. Output nothing else.',
-                prompt,
-                temperature: 0.1
+                  model,
+                  system: 'You are a helpful financial assistant. Output ONLY a valid JSON object matching the requested schema. No markdown, no extra text.',
+                  prompt,
+                  temperature: 0.1
                 });
 
-                const result = text.trim();
-                if (result !== 'INCONCLUSIVE' && categoryList.some(c => c.id === result)) {
-                    txSpinner.stop(`Completed Stage 2 evaluation`);
-                    displayEvaluationResult(transaction, 'Stage 2 (Identity Resolution / Direct AI Match)', result);
-                    continue;
+                let stage2Parsed;
+                try {
+                  stage2Parsed = JSON.parse(text.trim());
+                } catch (e) {
+                  stage2Parsed = { recommendedCategoryId: null, confidenceScore: 0, reasoning: "JSON parsing failed" };
                 }
 
-                txSpinner.message(`Stage 2 inconclusive. Moving to Stage 3 (Deep Reasoning)...`);
-                const fallbackPrompt = buildStage3Prompt(txContext, stage1, result, categoryList);
+                const s2Cat = stage2Parsed.recommendedCategoryId;
+                const s2Conf = typeof stage2Parsed.confidenceScore === 'number' ? stage2Parsed.confidenceScore : 0;
+
+                if (s2Cat && categoryList.some(c => c.id === s2Cat)) {
+                    const evalConf = evaluateConfidence(s2Conf, 2);
+
+                    if (evalConf.tier === 'Auto' || evalConf.tier === 'Suggest') {
+                        txSpinner.stop(`Completed Stage 2 evaluation`);
+
+                        const trace: CategorizationTrace = {
+                          ...baseTrace,
+                          assigned_category_id: s2Cat,
+                          confidence_score: evalConf.score,
+                          tier: evalConf.tier,
+                          stage_resolved: 2,
+                          llm_reasoning: stage2Parsed.reasoning || null
+                        };
+
+                        await saveTrace(trace);
+                        displayEvaluationResult(transaction, `Stage 2 (Tier: ${evalConf.tier}, Score: ${evalConf.score})`, s2Cat, `Reasoning: ${stage2Parsed.reasoning || ''}`);
+                        continue;
+                    } else {
+                        txSpinner.message(`Stage 2 score (${evalConf.score}) too low for Auto/Suggest. Moving to Stage 3...`);
+                    }
+                } else {
+                    txSpinner.message(`Stage 2 inconclusive. Moving to Stage 3 (Deep Reasoning)...`);
+                }
+
+                const fallbackPrompt = buildStage3Prompt(txContext, stage1, JSON.stringify(stage2Parsed), categoryList);
                 const { text: fallbackText } = await generateText({
-                model,
-                system: 'You are a senior financial analyst. Provide a JSON response with reasoning and confidence.',
-                prompt: fallbackPrompt,
-                temperature: 0.1
+                  model,
+                  system: 'You are a senior financial analyst. Output ONLY a valid JSON object matching the requested schema. No markdown, no extra text.',
+                  prompt: fallbackPrompt,
+                  temperature: 0.1
                 });
 
                 txSpinner.stop(`Completed Stage 3 evaluation`);
 
                 let parsedResult;
                 try {
-                     parsedResult = JSON.parse(fallbackText);
+                     parsedResult = JSON.parse(fallbackText.trim());
                 } catch (e) {
-                     parsedResult = fallbackText;
+                     parsedResult = { recommendedCategoryId: null, confidenceScore: 0, reasoning: "JSON parsing failed" };
                 }
 
-                const displayCategory = parsedResult?.suggestedCategoryId || 'INCONCLUSIVE';
-                const details = parsedResult?.reasoning ? `Reasoning: ${parsedResult.reasoning}\nConfidence: ${parsedResult.confidence}` : JSON.stringify(parsedResult, null, 2);
+                const displayCategory = parsedResult.recommendedCategoryId || 'INCONCLUSIVE';
+                const s3Conf = typeof parsedResult.confidenceScore === 'number' ? parsedResult.confidenceScore : 0;
+                const evalConf = evaluateConfidence(s3Conf, 3);
 
+                const trace: CategorizationTrace = {
+                  ...baseTrace,
+                  assigned_category_id: displayCategory === 'INCONCLUSIVE' ? null : displayCategory,
+                  confidence_score: evalConf.score,
+                  tier: evalConf.tier,
+                  stage_resolved: 3,
+                  llm_reasoning: parsedResult.reasoning || null
+                };
+
+                await saveTrace(trace);
+                const details = `Tier: ${evalConf.tier} (Score: ${evalConf.score})\nReasoning: ${parsedResult.reasoning || ''}`;
                 displayEvaluationResult(transaction, 'Stage 3 (Deep Reasoning)', displayCategory, details);
             } else {
                 txSpinner.stop('Evaluation stopped');

@@ -63,6 +63,7 @@ Transaction Details:
 Stage-1 Signals:
 - Is Multi-Merchant Payee (e.g. Afterpay): ${stage1.isMultiMerchantPayee}
 - Historical Transactions with this Payee: ${stage1.historyMatches}
+- Account Heuristics Applied: None yet
 
 Context:
 ${calendarContext}
@@ -74,7 +75,12 @@ ${categoryList}
 
 Task:
 Determine the most appropriate Category ID for this transaction.
-Return ONLY the Category ID. If you cannot confidently determine the category, return "INCONCLUSIVE".
+Respond ONLY with a JSON object in the exact format below. Do not include markdown formatting or any extra text.
+{
+  "recommendedCategoryId": "category-id or null if inconclusive",
+  "confidenceScore": 0.0 to 0.99,
+  "reasoning": "Brief explanation of how the context leads to this category"
+}
 `;
 }
 
@@ -106,10 +112,10 @@ Available Categories:
 ${categoryList}
 
 Please analyze this transaction and provide a final recommendation.
-Respond in the following JSON format:
+Respond ONLY with a JSON object in the exact format below. Do not include markdown formatting or any extra text.
 {
   "recommendedCategoryId": "category-id or null",
-  "confidenceScore": 0-100,
+  "confidenceScore": 0.0 to 0.79,
   "reasoning": "Step-by-step rationale for this recommendation",
   "requiresHumanReview": true
 }
