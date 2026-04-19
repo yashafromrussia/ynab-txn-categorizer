@@ -1,7 +1,7 @@
 ---
 id: TASK-14
 title: switch to ynab sdk
-status: In Progress
+status: Done
 assignee:
   - sisyphus
 created_date: '2026-04-19 02:43'
