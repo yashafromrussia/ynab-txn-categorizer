@@ -3,10 +3,10 @@ id: TASK-8
 title: >-
   Review UI: Build a TUI (Terminal User Interface) for approving/correcting
   suggestions
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-04-17 13:15'
-updated_date: '2026-04-18 11:57'
+updated_date: '2026-04-19 00:29'
 labels: []
 dependencies: []
 ---
