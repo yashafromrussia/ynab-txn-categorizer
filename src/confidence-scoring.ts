@@ -1,5 +1,6 @@
 import { appendFile } from 'fs/promises';
 import { join } from 'path';
+import { SubTransaction } from './ynab.js';
 
 export type ConfidenceTier = 'Auto' | 'Suggest' | 'Review' | 'Escalate';
 
@@ -7,6 +8,7 @@ export interface CategorizationTrace {
   transaction_id: string;
   payee_name: string;
   assigned_category_id: string | null;
+  subtransactions?: SubTransaction[];
   confidence_score: number;
   tier: ConfidenceTier;
   stage_resolved: 1 | 2 | 3 | null;

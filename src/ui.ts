@@ -18,6 +18,11 @@ export async function selectTransactionToEvaluate(transactions: any[]): Promise<
     });
     
     options.push({
+        value: 'MANAGE_AMBIGUOUS',
+        label: chalk.magenta('Manage Ambiguous Payees'),
+    });
+
+    options.push({
         value: 'EXIT',
         label: chalk.dim('Exit'),
     });

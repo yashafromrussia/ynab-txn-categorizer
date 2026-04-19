@@ -3,6 +3,8 @@ import { YnabClient } from './ynab.js';
 import { CalendarClient } from './calendar.js';
 import { PatternEngine } from './pattern-engine.js';
 import { CalendarEvent } from "./calendar.js";
+import { CorrelationResolver } from "./correlation.js";
+import { ConfigManager } from './config.js';
 import { IdentityResolver } from './identity.js';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -63,23 +65,42 @@ async function main() {
 
   const ynabClient = new YnabClient(token, budgetId);
   const calendarClient = calendarId ? new CalendarClient(calendarId) : null;
+  const configManager = new ConfigManager();
+  const appConfig = configManager.getConfig();
+
   const engine = new PatternEngine();
+  appConfig.rules.forEach(rule => engine.addRule(rule));
+
+  const correlationResolver = new CorrelationResolver({
+      ambiguousPayees: appConfig.ambiguousPayees,
+      amountTolerance: appConfig.amountTolerance,
+      dateWindowDays: appConfig.dateWindowDays,
+      requireCrossAccount: appConfig.requireCrossAccount,
+      minConfidence: appConfig.minConfidence
+  });
   const identityResolver = (braveApiKey)
     ? new IdentityResolver(braveApiKey, aiModel)
     : null;
 
-  const knownCategoriesMap = {
-    'Dining': ['restaurant', 'coffee', 'cafe', 'food', 'steak'],
-    'Groceries': ['grocery', 'supermarket', 'market', 'coles', 'grocer'],
-    'Travel': ['flight', 'airline', 'hotel', 'motel', 'resort'],
-    'Entertainment': ['movie', 'theater', 'tickets', 'concert']
-  };
-
-  const categoryList = Object.entries(knownCategoriesMap).map(([id, _]) => ({ id, name: id }));
+  const knownCategoriesMap = appConfig.knownCategories;
 
   try {
+    console.log('Fetching budget categories...');
+    const categories = await ynabClient.getCategories();
+    const categoryMap = new Map<string, string>();
+    categories.forEach(c => categoryMap.set(c.id, c.name));
+
+    // The categoryList passed to the AI should be the actual YNAB categories
+    const categoryList = categories.map(c => ({ id: c.id, name: c.name }));
+
+    const getCategoryName = (id: string | null | undefined, tx?: any) => {
+        if (!id) return 'Unknown';
+        if (tx && tx.category_name) return tx.category_name;
+        return categoryMap.get(id) || id;
+    };
+
     console.log('Fetching uncategorized transactions...');
-    const uncategorized = await ynabClient.getUncategorizedTransactions();
+    const uncategorized = await ynabClient.getUnapprovedTransactions();
     console.log(`Found ${uncategorized.length} uncategorized transactions.`);
 
     p.intro(chalk.bgCyan.black(' YNAB Intelligent Categorizer '));
@@ -158,7 +179,52 @@ async function main() {
                 continue;
             }
 
-            txSpinner.message(`Stage 1 inconclusive. Moving to Stage 2 (Identity Resolution)...`);
+            let forceCorrelation = false;
+            if (selectedOption !== 'ALL' && transaction.payee_name && correlationResolver.isAmbiguous(transaction.payee_name)) {
+                 txSpinner.stop(`Detected ambiguous payee: ${transaction.payee_name}`);
+                 const shouldForce = await p.confirm({
+                    message: `Payee "${transaction.payee_name}" is known to be ambiguous. Force transaction through correlation flow?`,
+                    initialValue: true
+                 });
+                 if (!p.isCancel(shouldForce)) {
+                     forceCorrelation = shouldForce as boolean;
+                 }
+                 txSpinner.start(`Resuming evaluation: ${transaction.date} | Payee: ${transaction.payee_name}`);
+            }
+
+            if (forceCorrelation || (transaction.payee_name && correlationResolver.isAmbiguous(transaction.payee_name))) {
+                txSpinner.message(`Stage 1.5: Running correlation for ambiguous payee...`);
+                const correlationResult = await correlationResolver.correlate(transaction, ynabClient);
+
+                if (correlationResult.categoryId || (correlationResult.subtransactions && correlationResult.subtransactions.length > 0)) {
+                     txSpinner.stop(`Completed Stage 1.5 evaluation`);
+                     const trace: CategorizationTrace = {
+                        ...baseTrace,
+                        assigned_category_id: correlationResult.categoryId,
+                        subtransactions: correlationResult.subtransactions,
+                        confidence_score: 0.9,
+                        tier: 'Auto',
+                        stage_resolved: 1,
+                        llm_reasoning: correlationResult.reasoning
+                     };
+                     await saveTrace(trace);
+                     
+                     let resultDisplay = correlationResult.categoryId ? getCategoryName(correlationResult.categoryId) : 'Split';
+                     
+                     let details = `Reasoning: ${correlationResult.reasoning}`;
+                     if (correlationResult.subtransactions && correlationResult.subtransactions.length > 0) {
+                         details += `\nSplits:\n`;
+                         correlationResult.subtransactions.forEach(st => {
+                             details += `  - ${(st.amount/1000).toFixed(2)}: ${getCategoryName(st.category_id, st)}\n`;
+                         });
+                     }
+
+                     displayEvaluationResult(transaction, `Stage 1.5 Correlation (Tier: Auto, Score: 0.9)`, resultDisplay, details);
+                     continue;
+                } else {
+                     txSpinner.message(`Stage 1.5 Correlation unsuccessful: ${correlationResult.reasoning}`);
+                }
+            }
             let merchantInfo = '';
             if (identityResolver && transaction.payee_name) {
                 const { categoryId, merchantInfo: info } = await identityResolver.resolveMerchant(transaction.payee_name, knownCategoriesMap);

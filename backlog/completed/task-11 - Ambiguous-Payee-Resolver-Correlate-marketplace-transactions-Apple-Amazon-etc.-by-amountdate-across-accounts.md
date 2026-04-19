@@ -3,9 +3,10 @@ id: TASK-11
 title: >-
   Ambiguous Payee Resolver: Correlate marketplace transactions (Apple, Amazon,
   etc.) by amount+date across accounts
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-18 11:41'
+updated_date: '2026-04-19 01:42'
 labels:
   - categorization
   - correlation

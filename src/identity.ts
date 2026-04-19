@@ -17,7 +17,6 @@ export class IdentityResolver {
   private getAiModel(modelStr: string) {
     const [provider, ...modelParts] = modelStr.split(':');
     const model = modelParts.join(':');
-    console.log('getAiModel', model, provider)
 
     switch (provider) {
       case 'google': {

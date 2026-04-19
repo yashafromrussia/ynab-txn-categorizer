@@ -1,0 +1,13 @@
+{
+  "ambiguousPayees": ["Apple", "Amazon", "PayPal", "Stripe", "Google", "Square", "Afterpay"],
+  "amountTolerance": 500,
+  "dateWindowDays": 60,
+  "requireCrossAccount": false,
+  "knownCategories": {
+      "Dining": ["restaurant", "coffee", "cafe", "food", "steak"],
+      "Groceries": ["grocery", "supermarket", "market", "coles", "grocer"],
+      "Travel": ["flight", "airline", "hotel", "motel", "resort"],
+      "Entertainment": ["movie", "theater", "tickets", "concert"]
+  },
+  "rules": []
+}
