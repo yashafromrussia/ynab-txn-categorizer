@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
+import * as ynab from 'ynab';
 
 export interface SubTransaction {
   id: string;
@@ -42,59 +42,116 @@ export interface Category {
   category_group_id: string;
 }
 
+function nullish<T>(v: T | null | undefined): T | null {
+  return v == null ? null : v;
+}
+
+function normalizeSubTransaction(s: ynab.SubTransaction): SubTransaction {
+  return {
+    id: s.id,
+    transaction_id: s.transaction_id,
+    amount: s.amount,
+    memo: nullish(s.memo),
+    payee_id: nullish(s.payee_id),
+    payee_name: nullish(s.payee_name),
+    category_id: nullish(s.category_id),
+    category_name: nullish(s.category_name),
+    transfer_account_id: nullish(s.transfer_account_id),
+    transfer_transaction_id: nullish(s.transfer_transaction_id),
+    deleted: s.deleted,
+  };
+}
+
+// TransactionDetail and HybridTransaction share the same fields we consume.
+// HybridTransaction adds `parent_transaction_id` which we ignore.
+type SdkTransactionLike = ynab.TransactionDetail | ynab.HybridTransaction;
+
+function normalizeTransaction(t: SdkTransactionLike): Transaction {
+  return {
+    id: t.id,
+    date: t.date,
+    amount: t.amount,
+    memo: nullish(t.memo),
+    cleared: t.cleared as unknown as string,
+    approved: t.approved,
+    flag_color: t.flag_color == null ? null : (t.flag_color as unknown as string),
+    account_id: t.account_id,
+    payee_id: nullish(t.payee_id),
+    category_id: nullish(t.category_id),
+    transfer_account_id: nullish(t.transfer_account_id),
+    transfer_transaction_id: nullish(t.transfer_transaction_id),
+    matched_transaction_id: nullish(t.matched_transaction_id),
+    import_id: nullish(t.import_id),
+    deleted: t.deleted,
+    account_name: t.account_name,
+    payee_name: nullish(t.payee_name),
+    category_name: nullish(t.category_name),
+    subtransactions:
+      'subtransactions' in t && Array.isArray(t.subtransactions)
+        ? t.subtransactions.map(normalizeSubTransaction)
+        : undefined,
+  };
+}
+
+function handleSdkError(err: unknown): never {
+  // SDK throws errors shaped like `{ error: { id: "401", name, detail } }`.
+  const maybe = err as { error?: { id?: string; name?: string; detail?: string } } | undefined;
+  if (maybe?.error?.id === '401') {
+    console.error('YNAB API Authentication failed. Please check your YNAB_ACCESS_TOKEN.');
+  }
+  throw err;
+}
+
 export class YnabClient {
-  private client: AxiosInstance;
+  private api: ynab.API;
   private budgetId: string;
 
   constructor(token: string, budgetId: string) {
     this.budgetId = budgetId;
-    this.client = axios.create({
-      baseURL: 'https://api.ynab.com/v1',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    this.client.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          console.error('YNAB API Authentication failed. Please check your YNAB_ACCESS_TOKEN.');
-        }
-        return Promise.reject(error);
-      }
-    );
+    this.api = new ynab.API(token);
   }
 
   async getTransactions(sinceDate?: string): Promise<Transaction[]> {
-    const params: any = {};
-    if (sinceDate) {
-        params.since_date = sinceDate;
+    try {
+      const response = await this.api.transactions.getTransactions(this.budgetId, sinceDate);
+      return response.data.transactions.map(normalizeTransaction);
+    } catch (err) {
+      handleSdkError(err);
     }
-    const response = await this.client.get(`/budgets/${this.budgetId}/transactions`, { params });
-    return response.data.data.transactions;
   }
 
   async getUnapprovedTransactions(sinceDate?: string): Promise<Transaction[]> {
-    const params: any = { type: 'unapproved' };
-    if (sinceDate) {
-        params.since_date = sinceDate;
+    try {
+      const response = await this.api.transactions.getTransactions(
+        this.budgetId,
+        sinceDate,
+        'unapproved'
+      );
+      return response.data.transactions.map(normalizeTransaction);
+    } catch (err) {
+      handleSdkError(err);
     }
-    const response = await this.client.get(`/budgets/${this.budgetId}/transactions`, { params });
-    return response.data.data.transactions;
   }
 
   async getTransactionsByPayee(payeeId: string): Promise<Transaction[]> {
-    const response = await this.client.get(`/budgets/${this.budgetId}/payees/${payeeId}/transactions`);
-    return response.data.data.transactions;
+    try {
+      const response = await this.api.transactions.getTransactionsByPayee(this.budgetId, payeeId);
+      return response.data.transactions.map(normalizeTransaction);
+    } catch (err) {
+      handleSdkError(err);
+    }
   }
 
-  async getTransactionsByDateAndAmount(sinceDate: string, amountMilliunits: number, amountTolerance: number): Promise<Transaction[]> {
+  async getTransactionsByDateAndAmount(
+    sinceDate: string,
+    amountMilliunits: number,
+    amountTolerance: number
+  ): Promise<Transaction[]> {
     const transactions = await this.getTransactions(sinceDate);
     const minAmount = Math.abs(amountMilliunits) - amountTolerance;
     const maxAmount = Math.abs(amountMilliunits) + amountTolerance;
 
-    return transactions.filter(t => {
+    return transactions.filter((t) => {
       if (!t.approved) return false;
 
       const absAmount = Math.abs(t.amount);
@@ -103,23 +160,27 @@ export class YnabClient {
   }
 
   async getCategories(): Promise<Category[]> {
-    const response = await this.client.get(`/budgets/${this.budgetId}/categories`);
-    const categoryGroups = response.data.data.category_groups;
+    try {
+      const response = await this.api.categories.getCategories(this.budgetId);
+      const categoryGroups = response.data.category_groups;
 
-    const categories: Category[] = [];
-    for (const group of categoryGroups) {
-      if (!group.hidden && !group.deleted) {
-        for (const cat of group.categories) {
-          if (!cat.hidden && !cat.deleted) {
-            categories.push({
-              id: cat.id,
-              name: cat.name,
-              category_group_id: cat.category_group_id
-            });
+      const categories: Category[] = [];
+      for (const group of categoryGroups) {
+        if (!group.hidden && !group.deleted) {
+          for (const cat of group.categories) {
+            if (!cat.hidden && !cat.deleted) {
+              categories.push({
+                id: cat.id,
+                name: cat.name,
+                category_group_id: cat.category_group_id,
+              });
+            }
           }
         }
       }
+      return categories;
+    } catch (err) {
+      handleSdkError(err);
     }
-    return categories;
   }
 }
